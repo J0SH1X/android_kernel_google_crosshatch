@@ -12,6 +12,7 @@
 
 struct sec_ts_data *tsp_info;
 
+#include <linux/b1c1_init.h>
 #include "sec_ts.h"
 
 /* Switch GPIO values */
@@ -449,35 +450,25 @@ void sec_ts_delay(unsigned int ms)
 
 int sec_ts_wait_for_ready(struct sec_ts_data *ts, unsigned int ack)
 {
-	return sec_ts_wait_for_ready_with_count(ts, ack,
-						SEC_TS_WAIT_RETRY_CNT);
-}
-
-int sec_ts_wait_for_ready_with_count(struct sec_ts_data *ts, unsigned int ack,
-				     unsigned int count)
-{
 	int rc = -1;
 	int retry = 0;
 	u8 tBuff[SEC_TS_EVENT_BUFF_SIZE] = {0,};
 
-	while (sec_ts_i2c_read(ts, SEC_TS_READ_ONE_EVENT, tBuff,
-				SEC_TS_EVENT_BUFF_SIZE)) {
+	while (sec_ts_i2c_read(ts, SEC_TS_READ_ONE_EVENT, tBuff, SEC_TS_EVENT_BUFF_SIZE)) {
 		if (((tBuff[0] >> 2) & 0xF) == TYPE_STATUS_EVENT_INFO) {
 			if (tBuff[1] == ack) {
 				rc = 0;
 				break;
 			}
-		} else if (((tBuff[0] >> 2) & 0xF)
-				== TYPE_STATUS_EVENT_VENDOR_INFO) {
+		} else if (((tBuff[0] >> 2) & 0xF) == TYPE_STATUS_EVENT_VENDOR_INFO) {
 			if (tBuff[1] == ack) {
 				rc = 0;
 				break;
 			}
 		}
 
-		if (retry++ > count) {
-			input_err(true, &ts->client->dev, "%s: Time Over\n",
-				__func__);
+		if (retry++ > SEC_TS_WAIT_RETRY_CNT) {
+			input_err(true, &ts->client->dev, "%s: Time Over\n", __func__);
 			break;
 		}
 		sec_ts_delay(20);
@@ -612,74 +603,6 @@ static void sec_ts_reinit(struct sec_ts_data *ts)
 
 	}
 	return;
-}
-
-static bool read_heatmap_raw(struct v4l2_heatmap *v4l2, strength_t *data)
-{
-	struct sec_ts_data *ts = container_of(v4l2, struct sec_ts_data, v4l2);
-
-	unsigned int num_elements;
-	/* index for looping through the heatmap buffer read over the bus */
-	unsigned int local_i;
-
-	int result;
-
-	strength_t heatmap_value;
-	/* final position of the heatmap value in the full heatmap frame */
-	unsigned int frame_i;
-	int heatmap_x, heatmap_y;
-	int max_x = v4l2->format.width;
-	int max_y = v4l2->format.height;
-
-	struct heatmap_report report = {0};
-
-	result = sec_ts_i2c_read(ts, SEC_TS_CMD_HEATMAP_READ,
-		(uint8_t *) &report, sizeof(report));
-	if (result < 0) {
-		input_err(true, &ts->client->dev,
-			 "%s: i2c read failed, sec_ts_i2c_read returned %i\n",
-			__func__, result);
-		return false;
-	}
-
-	num_elements = report.size_x * report.size_y;
-	if (num_elements > LOCAL_HEATMAP_WIDTH * LOCAL_HEATMAP_HEIGHT) {
-		input_err(true, &ts->client->dev,
-			"Unexpected heatmap size: %i x %i",
-			report.size_x, report.size_y);
-			return false;
-	}
-
-	/* set all to zero, will only write to non-zero locations in the loop */
-	memset(data, 0, max_x * max_y * sizeof(data[0]));
-	/* populate the data buffer, rearranging into final locations */
-	for (local_i = 0; local_i < num_elements; local_i++) {
-		/* enforce big-endian order */
-		be16_to_cpus(&report.data[local_i]);
-		heatmap_value = report.data[local_i];
-
-		if (heatmap_value == 0) {
-			/*
-			 * Already initialized to zero. More importantly,
-			 * samples around edges may go out of bounds.
-			 * If their value is zero, this is ok.
-			 */
-			continue;
-		}
-		heatmap_x = report.offset_x + (local_i % report.size_x);
-		heatmap_y = report.offset_y + (local_i / report.size_x);
-
-		if (heatmap_x < 0 || heatmap_x >= max_x ||
-			heatmap_y < 0 || heatmap_y >= max_y) {
-				input_err(true, &ts->client->dev,
-					"Invalid x or y: (%i, %i), value=%i, ending loop\n",
-					heatmap_x, heatmap_y, heatmap_value);
-				return false;
-		}
-		frame_i = heatmap_y * max_x + heatmap_x;
-		data[frame_i] = heatmap_value;
-	};
-	return true;
 }
 
 #define MAX_EVENT_COUNT 32
@@ -1096,20 +1019,7 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 		remain_event_count--;
 	} while (remain_event_count >= 0);
 
-	input_event(ts->input_dev, EV_MSC, MSC_TIMESTAMP,
-		ts->timestamp / 1000);
 	input_sync(ts->input_dev);
-
-	heatmap_read(&ts->v4l2, ts->timestamp);
-}
-
-static irqreturn_t sec_ts_isr(int irq, void *handle)
-{
-	struct sec_ts_data *ts = (struct sec_ts_data *)handle;
-
-	ts->timestamp = ktime_get_ns();
-
-	return IRQ_WAKE_THREAD;
 }
 
 static irqreturn_t sec_ts_irq_thread(int irq, void *ptr)
@@ -1496,22 +1406,6 @@ static int sec_ts_parse_dt(struct i2c_client *client)
 			  __func__);
 	}
 
-	pdata->reset_gpio = of_get_named_gpio(np, "sec,reset_gpio", 0);
-	if (gpio_is_valid(pdata->reset_gpio)) {
-		ret = gpio_request_one(pdata->reset_gpio,
-					GPIOF_OUT_INIT_HIGH,
-					"sec,touch_reset_gpio");
-		if (ret) {
-			input_err(true, dev,
-				  "%s: Failed to request gpio %d, ret %d\n",
-				  __func__, pdata->reset_gpio, ret);
-			pdata->reset_gpio = -1;
-		}
-
-	} else
-		input_err(true, dev, "%s: Failed to get reset_gpio\n",
-			__func__);
-
 	count = of_property_count_strings(np, "sec,firmware_name");
 	if (count <= 0) {
 		pdata->firmware_name = NULL;
@@ -1558,7 +1452,7 @@ static int sec_ts_parse_dt(struct i2c_client *client)
 
 	input_info(true, &client->dev, "%s: lcdtype 0x%08X\n", __func__, lcdtype);
 
-	if (pdata->model_name && strncmp(pdata->model_name, "G950", 4) == 0)
+	if (strncmp(pdata->model_name, "G950", 4) == 0)
 		pdata->panel_revision = 0;
 	else
 		pdata->panel_revision = ((lcdtype >> 8) & 0xFF) >> 4;
@@ -1784,8 +1678,6 @@ static void sec_ts_set_input_prop(struct sec_ts_data *ts, struct input_dev *dev,
 	if (ts->plat_data->support_mt_pressure)
 		input_set_abs_params(dev, ABS_MT_PRESSURE, 0,
 				     SEC_TS_PRESSURE_MAX, 0, 0);
-
-	input_set_capability(ts->input_dev, EV_MSC, MSC_TIMESTAMP);
 
 	if (propbit == INPUT_PROP_POINTER)
 		input_mt_init_slots(dev, MAX_SUPPORT_TOUCH_COUNT, INPUT_MT_POINTER);
@@ -2099,25 +1991,9 @@ static int sec_ts_probe(struct i2c_client *client,
 
 	ret = sec_ts_wait_for_ready(ts, SEC_TS_ACK_BOOT_COMPLETE);
 	if (ret < 0) {
-		u8 boot_status;
-		/* Read the boot status in case device is in bootloader mode */
-		ret = ts->sec_ts_i2c_read(ts, SEC_TS_READ_BOOT_STATUS,
-					  &boot_status, 1);
-		if (ret < 0) {
-			input_err(true, &ts->client->dev,
-				  "%s: could not read boot status. Assuming no device connected.\n",
-				  __func__);
-			goto err_init;
-		}
-
-		input_info(true, &ts->client->dev,
-			   "%s: Attempting to reflash the firmware. Boot status = 0x%02X\n",
-			   __func__, boot_status);
-		if (boot_status != SEC_TS_STATUS_BOOT_MODE)
-			input_err(true, &ts->client->dev,
-				  "%s: device is not in bootloader mode!\n",
-				  __func__);
-
+		input_err(true, &ts->client->dev,
+			  "%s: failed to communicate with touch controller. Try to update FW to recover!\n",
+			  __func__);
 		ts->is_fw_corrupted = true;
 	}
 
@@ -2138,39 +2014,16 @@ static int sec_ts_probe(struct i2c_client *client,
 		}
 	}
 
+	input_info(true, &ts->client->dev, "%s: request_irq = %d\n", __func__, client->irq);
+
 	pm_qos_add_request(&ts->pm_qos_req, PM_QOS_CPU_DMA_LATENCY,
 		PM_QOS_DEFAULT_VALUE);
 
-	/*
-	 * Heatmap_probe must be called before irq routine is registered,
-	 * because heatmap_read is called from the irq context.
-	 * If the ISR runs before heatmap_probe is finished, it will invoke
-	 * heatmap_read and cause NPE, since read_frame would not yet be set.
-	 */
-	ts->v4l2.parent_dev = &ts->client->dev;
-	ts->v4l2.input_dev = ts->input_dev;
-	ts->v4l2.read_frame = read_heatmap_raw;
-	ts->v4l2.width = ts->tx_count;
-	ts->v4l2.height = ts->rx_count;
-	/* 120 Hz operation */
-	ts->v4l2.timeperframe.numerator = 1;
-	ts->v4l2.timeperframe.denominator = 120;
-	ret = heatmap_probe(&ts->v4l2);
-	if (ret) {
-		input_err(true, &ts->client->dev,
-			"%s: Heatmap probe failed\n", __func__);
-		goto err_irq;
-	}
-
-	input_info(true, &ts->client->dev, "%s: request_irq = %d\n", __func__,
-			client->irq);
-
-	ret = request_threaded_irq(client->irq, sec_ts_isr, sec_ts_irq_thread,
+	ret = request_threaded_irq(client->irq, NULL, sec_ts_irq_thread,
 			ts->plat_data->irq_type, SEC_TS_I2C_NAME, ts);
 	if (ret < 0) {
-		input_err(true, &ts->client->dev,
-			"%s: Unable to request threaded irq\n", __func__);
-		goto err_heatmap;
+		input_err(true, &ts->client->dev, "%s: Unable to request threaded irq\n", __func__);
+		goto err_irq;
 	}
 
 	ts->notifier = sec_ts_screen_nb;
@@ -2223,8 +2076,6 @@ static int sec_ts_probe(struct i2c_client *client,
 */
 err_register_drm_client:
 	free_irq(client->irq, ts);
-err_heatmap:
-	heatmap_remove(&ts->v4l2);
 err_irq:
 	pm_qos_remove_request(&ts->pm_qos_req);
 	if (ts->plat_data->support_dex) {
@@ -2269,8 +2120,6 @@ error_allocate_mem:
 		gpio_free(pdata->tsp_icid);
 	if (gpio_is_valid(pdata->switch_gpio))
 		gpio_free(pdata->switch_gpio);
-	if (gpio_is_valid(pdata->reset_gpio))
-		gpio_free(pdata->reset_gpio);
 
 error_allocate_pdata:
 	if (ret == -ECONNREFUSED)
@@ -2332,8 +2181,6 @@ void sec_ts_unlocked_release_all_finger(struct sec_ts_data *ts)
 	}
 
 	input_report_key(ts->input_dev, KEY_HOMEPAGE, 0);
-	input_event(ts->input_dev, EV_MSC, MSC_TIMESTAMP,
-		ts->timestamp / 1000);
 	input_sync(ts->input_dev);
 
 }
@@ -2690,8 +2537,6 @@ static int sec_ts_remove(struct i2c_client *client)
 	free_irq(ts->client->irq, ts);
 	input_info(true, &ts->client->dev, "%s: irq disabled\n", __func__);
 
-	heatmap_remove(&ts->v4l2);
-
 	pm_qos_remove_request(&ts->pm_qos_req);
 
 #ifdef USE_POWER_RESET_WORK
@@ -2739,8 +2584,6 @@ static int sec_ts_remove(struct i2c_client *client)
 		gpio_free(ts->plat_data->irq_gpio);
 	if (gpio_is_valid(ts->plat_data->switch_gpio))
 		gpio_free(ts->plat_data->switch_gpio);
-	if (gpio_is_valid(ts->plat_data->reset_gpio))
-		gpio_free(ts->plat_data->reset_gpio);
 
 	sec_ts_raw_device_exit(ts);
 #ifndef CONFIG_SEC_SYSFS
@@ -3009,10 +2852,10 @@ static void sec_ts_resume_work(struct work_struct *work)
 
 	ts->power_status = SEC_TS_STATE_POWER_ON;
 
-	ret = sec_ts_system_reset(ts);
+	ret = sec_ts_sw_reset(ts);
 	if (ret < 0)
 		input_err(true, &ts->client->dev,
-			"%s: reset failed! ret %d\n", __func__, ret);
+			  "%s: software reset failed!\n", __func__);
 
 	if (ts->plat_data->enable_sync)
 		ts->plat_data->enable_sync(true);
@@ -3222,7 +3065,7 @@ static struct i2c_driver sec_ts_driver = {
 	},
 };
 
-static int __init sec_ts_init(void)
+static int sec_ts_init(void)
 {
 #ifdef CONFIG_BATTERY_SAMSUNG
 	if (lpcharge == 1) {
@@ -3245,5 +3088,5 @@ MODULE_AUTHOR("Hyobae, Ahn<hyobae.ahn@samsung.com>");
 MODULE_DESCRIPTION("Samsung Electronics TouchScreen driver");
 MODULE_LICENSE("GPL");
 
-module_init(sec_ts_init);
+b1c1_init(sec_ts_init, B1C1_SEC_TOUCH);
 module_exit(sec_ts_exit);
