@@ -1,0 +1,6 @@
+[submodule "scripts/prebuilt/toolchain64"]
+	path = scripts/prebuilt/toolchain64
+	url = https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9
+[submodule "scripts/prebuilt/clang"]
+	path = scripts/prebuilt/clang
+	url = https://github.com/J0SH1X/clang-r353983.git

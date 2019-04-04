@@ -2,7 +2,7 @@ export CROSS_COMPILE=/home/j0sh1x/toolchain/bin/aarch64-linux-android-
 export CROSS_COMPILE_ARM32=/home/j0sh1x/toolchain32/bin/arm-linux-androideabi-
 export ARCH=arm64
 d=`date +%m%d`
-path="/home/j0sh1x/clang-toolchain/clang-r353983/bin/"
+path="scripts/prebuilt/clang/bin/"
 defcon=b1c1_defconfig
 dp=DP2
 
