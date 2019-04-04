@@ -39,10 +39,9 @@ void sec_cmd_set_cmd_exit(struct sec_cmd_data *data)
 
 void sec_cmd_set_default_result(struct sec_cmd_data *data)
 {
-	char delim = ':';
 	memset(data->cmd_result, 0x00, SEC_CMD_RESULT_STR_LEN);
 	memcpy(data->cmd_result, data->cmd, SEC_CMD_STR_LEN);
-	strncat(data->cmd_result, &delim, 1);
+	strcat(data->cmd_result, ":");
 }
 
 void sec_cmd_set_cmd_result(struct sec_cmd_data *data, char *buff, int len)
@@ -87,7 +86,7 @@ static ssize_t sec_cmd_store(struct device *dev,
 	if (*(buf + len - 1) == '\n')
 		len--;
 
-	memset(data->cmd, 0x00, ARRAY_SIZE(data->cmd));
+	memset(data->cmd, 0x00, sizeof(data->cmd));
 	memcpy(data->cmd, buf, len);
 
 	cur = strchr(buf, (int)delim);
@@ -119,17 +118,17 @@ static ssize_t sec_cmd_store(struct device *dev,
 	if (cur && cmd_found) {
 		cur++;
 		start = cur;
-		memset(buff, 0x00, ARRAY_SIZE(buff));
+		memset(buff, 0x00, sizeof(buff));
 
 		do {
 			if (*cur == delim || cur - buf == len) {
 				end = cur;
 				memcpy(buff, start, end - start);
-				*(buff + strnlen(buff, ARRAY_SIZE(buff))) = '\0';
+				*(buff + strnlen(buff, sizeof(buff))) = '\0';
 				if (kstrtoint(buff, 10, data->cmd_param + param_cnt) < 0)
 					goto err_out;
 				start = cur + 1;
-				memset(buff, 0x00, ARRAY_SIZE(buff));
+				memset(buff, 0x00, sizeof(buff));
 				param_cnt++;
 			}
 			cur++;
@@ -200,7 +199,7 @@ static void sec_cmd_store_function(struct sec_cmd_data *data)
 	if (*(buf + len - 1) == '\n')
 		len--;
 
-	memset(data->cmd, 0x00, ARRAY_SIZE(data->cmd));
+	memset(data->cmd, 0x00, sizeof(data->cmd));
 	memcpy(data->cmd, buf, len);
 
 	cur = strchr(buf, (int)delim);
@@ -232,17 +231,17 @@ static void sec_cmd_store_function(struct sec_cmd_data *data)
 	if (cur && cmd_found) {
 		cur++;
 		start = cur;
-		memset(buff, 0x00, ARRAY_SIZE(buff));
+		memset(buff, 0x00, sizeof(buff));
 
 		do {
 			if (*cur == delim || cur - buf == len) {
 				end = cur;
 				memcpy(buff, start, end - start);
-				*(buff + strnlen(buff, ARRAY_SIZE(buff))) = '\0';
+				*(buff + strnlen(buff, sizeof(buff))) = '\0';
 				if (kstrtoint(buff, 10, data->cmd_param + param_cnt) < 0)
 					return;
 				start = cur + 1;
-				memset(buff, 0x00, ARRAY_SIZE(buff));
+				memset(buff, 0x00, sizeof(buff));
 				param_cnt++;
 			}
 			cur++;

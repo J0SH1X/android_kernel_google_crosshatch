@@ -49,6 +49,7 @@
 #include <linux/firmware.h>
 #include <linux/regulator/consumer.h>
 #include <linux/of_gpio.h>
+#include <linux/b1c1_init.h>
 
 #ifdef CONFIG_TRUSTONIC_TRUSTED_UI
 #include <linux/trustedui.h>
@@ -809,10 +810,10 @@ static unsigned char fts_event_handler_type_b(struct fts_ts_info *info,
 			info->fts_power_state );
 #endif
 
-	if (info->fts_power_state == FTS_POWER_STATE_LOWPOWER)
-		EventID = data[EventNum * FTS_EVENT_SIZE] & 0xFF;
-	else
-		EventID = data[EventNum * FTS_EVENT_SIZE] & 0x0F;
+		if (info->fts_power_state == FTS_POWER_STATE_LOWPOWER)
+			EventID = data[EventNum * FTS_EVENT_SIZE] & 0xFF;
+		else
+			EventID = data[EventNum * FTS_EVENT_SIZE] & 0x0F;
 
 		if ((EventID >= 3) && (EventID <= 5)) {
 			LastLeftEvent = 0;
@@ -2259,7 +2260,7 @@ static struct i2c_driver fts_i2c_driver = {
 	.id_table = fts_device_id,
 };
 
-static int __init fts_driver_init(void)
+static int fts_driver_init(void)
 {
 	return i2c_add_driver(&fts_i2c_driver);
 }
@@ -2273,5 +2274,5 @@ MODULE_DESCRIPTION("STMicroelectronics MultiTouch IC Driver");
 MODULE_AUTHOR("STMicroelectronics, Inc.");
 MODULE_LICENSE("GPL v2");
 
-module_init(fts_driver_init);
+b1c1_init(fts_driver_init, B1C1_FTM5);
 module_exit(fts_driver_exit);

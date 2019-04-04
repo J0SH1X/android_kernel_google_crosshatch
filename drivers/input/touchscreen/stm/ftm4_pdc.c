@@ -360,12 +360,12 @@ static ssize_t store_cmd(struct device *dev, struct device_attribute *devattr,
 	info->cmd_is_running = true;
 	mutex_unlock(&info->cmd_lock);
 	info->cmd_state = 1;
-	memset(info->cmd_param, 0x00, ARRAY_SIZE(info->cmd_param));
+	memset(info->cmd_param, 0x00, sizeof(info->cmd_param));
 
 	len = (int)count;
 	if (*(buf + len - 1) == '\n')
 		len--;
-	memset(info->cmd, 0x00, ARRAY_SIZE(info->cmd));
+	memset(info->cmd, 0x00, sizeof(info->cmd));
 	memcpy(info->cmd, buf, len);
 	cur = strchr(buf, (int)delim);
 	if (cur)
@@ -397,20 +397,20 @@ static ssize_t store_cmd(struct device *dev, struct device_attribute *devattr,
 	if (cur && cmd_found) {
 		cur++;
 		start = cur;
-		memset(buff, 0x00, ARRAY_SIZE(buff));
+		memset(buff, 0x00, sizeof(buff));
 
 		do {
 			if (*cur == delim || cur - buf == len) {
 				end = cur;
 				memcpy(buff, start, end - start);
-				*(buff + strnlen(buff, ARRAY_SIZE(buff))) =
+				*(buff + strnlen(buff, sizeof(buff))) =
 				'\0';
 				if (kstrtoint
 				 (buff, 10,
 				  info->cmd_param + param_cnt) < 0)
 					goto err_out;
 				start = cur + 1;
-				memset(buff, 0x00, ARRAY_SIZE(buff));
+				memset(buff, 0x00, sizeof(buff));
 				param_cnt++;
 			}
 			cur++;
@@ -521,7 +521,7 @@ static void set_default_result(struct fts_ts_info *info)
 {
 	char delim = ':';
 
-	memset(info->cmd_result, 0x00, ARRAY_SIZE(info->cmd_result));
+	memset(info->cmd_result, 0x00, sizeof(info->cmd_result));
 	memcpy(info->cmd_result, info->cmd, strnlen(info->cmd, CMD_STR_LEN));
 	strncat(info->cmd_result, &delim, 1);
 }
@@ -1158,8 +1158,8 @@ void fts_read_self_frame(struct fts_ts_info *info, unsigned short oAddr)
 	else
 		data = (short *)&buff[1];
 
-	memset(temp, 0x00, ARRAY_SIZE(temp));
-	memset(temp2, 0x00, ARRAY_SIZE(temp2));
+	memset(temp, 0x00, sizeof(temp));
+	memset(temp2, 0x00, sizeof(temp2));
 
 	for (i = 0; i < info->SenseChannelLength; i++) {
 		tsp_debug_info(&info->client->dev,
@@ -1783,9 +1783,9 @@ static void run_cx_data_read(void *device_data)
 				Max_cxdiffData_tx = cxdiffData_tx[(j*rx_num)+i];
 			if (cxdiffData_tx[(j*rx_num)+i] < Low_cxdiffData_tx)
 				Low_cxdiffData_tx = cxdiffData_tx[(j*rx_num)+i];
-				snprintf(pTmp, sizeof(pTmp), "%4d",
-						cxdiffData_tx[(j*rx_num)+i]);
-				strcat(pStr, pTmp);
+			snprintf(pTmp, sizeof(pTmp), "%4d",
+					cxdiffData_tx[(j*rx_num)+i]);
+			strcat(pStr, pTmp);
 		}
 		tsp_debug_info(&info->client->dev, "FTS %s\n", pStr);
 	}
@@ -1883,7 +1883,7 @@ static void get_cx_all_data(void *device_data)
 		memset(&ReadData[j], 0x0, rx_num);
 		memset(pStr, 0x0, 4 * (rx_num + 1));
 		snprintf(pTmp, sizeof(pTmp), "Tx%02d | ", j);
-		strlcat(pStr, pTmp, 4 * (rx_num + 1));
+		strncat(pStr, pTmp, 4 * rx_num);
 
 		addr = comp_start_addr + (rx_num * j);
 		regAdd[0] = 0xD0;
@@ -1892,7 +1892,7 @@ static void get_cx_all_data(void *device_data)
 		info->fts_read_reg(info, regAdd, 3, &ReadData[j][0], rx_num + 1);
 		for (i = 0; i < rx_num; i++) {
 			snprintf(pTmp, sizeof(pTmp), "%3d", ReadData[j][i]);
-			strlcat(pStr, pTmp, 4 * (rx_num + 1));
+			strncat(pStr, pTmp, 4 * rx_num);
 		}
 		tsp_debug_info(&info->client->dev, "%s\n", pStr);
 	}
@@ -1904,7 +1904,7 @@ static void get_cx_all_data(void *device_data)
 					ReadData[j][i];
 				snprintf(buff, sizeof(buff),
 						"%d,", ReadData[j][i]);
-				strlcat(all_strbuff, buff, sizeof(all_strbuff));
+				strncat(all_strbuff, buff, sizeof(all_strbuff));
 			}
 		}
 	}
